@@ -33,11 +33,14 @@ Deno.serve(async request => {
   const key = Deno.env.get('GEMINI_API_KEY')?.trim();
   const project = Deno.env.get('SUPABASE_URL');
   const apikey = Deno.env.get('SUPABASE_ANON_KEY');
-  if (!key || !project || !apikey) return reply({ error: 'Серверная проверка ещё не настроена.' }, 503);
+  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (!key || !project || !apikey || !serviceKey) return reply({ error: 'Серверная проверка ещё не настроена.' }, 503);
 
   let size = 0;
+  let reservation: { user_id: string; day: string } | null = null;
+  let assessed = false;
   try {
-    // PostgREST verifies the caller JWT and claim_assessment enforces a quota for auth.uid().
+    // PostgREST verifies the caller JWT, and the reservation is tied to auth.uid().
     const bounded = request.body?.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
       transform(chunk, controller) {
         size += chunk.length;
@@ -59,11 +62,12 @@ Deno.serve(async request => {
     if (exercise.skill === 'speaking' ? !(audio instanceof File && audio.type === 'audio/wav' && audio.size > 44 && audio.size <= 2_000_000) : !answer || answer.length > 4000) {
       return reply({ error: 'Добавьте аудиозапись до минуты или текст до 4000 символов.' }, 400);
     }
-    const quota = await fetch(project + '/rest/v1/rpc/claim_assessment', {
+    const quota = await fetch(project + '/rest/v1/rpc/reserve_assessment', {
       method: 'POST', headers: { authorization, apikey, 'content-type': 'application/json' }, body: '{}',
     });
     if (!quota.ok) return reply({ error: quota.status === 401 ? 'Войдите в аккаунт заново.' : 'Проверка временно недоступна.' }, quota.status === 401 ? 401 : 503);
-    if (!await quota.json()) return reply({ error: 'Дневной лимит проверок исчерпан. Попробуйте завтра.' }, 429);
+    reservation = await quota.json();
+    if (!reservation) return reply({ error: 'Дневной лимит проверок исчерпан. Попробуйте завтра.' }, 429);
 
     const model = Deno.env.get('GEMINI_MODEL')?.trim() || 'gemini-3.1-flash-lite';
     const fields = ['verdict', 'explanation', 'correction', 'transcript'];
@@ -99,8 +103,23 @@ Deno.serve(async request => {
     const result = await response.json();
     const assessment = JSON.parse(result.candidates?.[0]?.content?.parts?.filter((part: { thought?: boolean }) => !part.thought).at(-1)?.text ?? '{}');
     if (!['correct', 'revise', 'uncertain'].includes(assessment.verdict) || !fields.every(field => typeof assessment[field] === 'string')) throw new Error('Invalid result');
+    assessed = true;
     return reply(Object.fromEntries(fields.map(field => [field, assessment[field].slice(0, 4000)])));
   } catch {
     return reply({ error: 'Проверка временно недоступна. Ваш ответ остался на экране.' }, 503);
+  } finally {
+    if (reservation && !assessed) {
+      try {
+        const refund = await fetch(project + '/rest/v1/rpc/refund_assessment', {
+          method: 'POST',
+          headers: { authorization: 'Bearer ' + serviceKey, apikey: serviceKey, 'content-type': 'application/json' },
+          body: JSON.stringify({ p_user_id: reservation.user_id, p_day: reservation.day }),
+          signal: AbortSignal.timeout(5000),
+        });
+        if (!refund.ok) console.warn('Assessment quota refund failed:', refund.status);
+      } catch {
+        console.warn('Assessment quota refund could not reach Supabase.');
+      }
+    }
   }
 });
