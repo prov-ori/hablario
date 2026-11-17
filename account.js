@@ -1,4 +1,4 @@
-import { readProgress,               } from './engine.js?v=1cddd9d95782';
+import { readProgress,               } from './engine.js?v=87b047bcd3c7';
 
 const config = (window                                                                                          ).HABLARIO_CONFIG;
 export const configured = Boolean(config?.supabaseUrl && config.supabasePublishableKey);
