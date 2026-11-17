@@ -1,4 +1,4 @@
-import { units, cards,                                                 } from './course.js';
+import { units, grammarUnits, cards,                                                 } from './course.js';
                                        
                     
                                                                                                         
@@ -80,7 +80,7 @@ export function advance(state          , unit      , attemptId        , mark    
 }
 export function results(unit      , attempt         ) {
   const totals = Object.fromEntries((['reading','listening','writing','speaking']           ).map(skill => [
-    skill, { earned: 0, possible: 0, skipped: 0, assisted: 0, self: skill === 'writing' || skill === 'speaking' }
+    skill, { earned: 0, possible: 0, skipped: 0, assisted: 0, self: false }
   ]))                                                                                                         ;
   for (const mark of attempt.marks) {
     const exercise = unit.exercises.find(item => item.id === mark.exerciseId);
@@ -88,6 +88,7 @@ export function results(unit      , attempt         ) {
     const total = totals[exercise.skill];
     if (mark.mode === 'skipped') total.skipped++;
     if (mark.mode === 'assisted') total.assisted++;
+    if (mark.mode === 'self') total.self = true;
     if (mark.mode === 'auto' || mark.mode === 'self') {
       total.earned += mark.earned;
       total.possible += mark.possible;
@@ -104,6 +105,7 @@ export function completed(state          , unit      )          {
   return attempts.length > 0;
 }
 export function available(state          , unit      )          {
+  if (grammarUnits.includes(unit)) return true;
   const index = units.indexOf(unit);
   return index === 0 || (index > 0 && units.slice(0, index).every(previous => completed(state, previous)));
 }

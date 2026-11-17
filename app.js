@@ -1,30 +1,59 @@
-import { cards, levels, skills, units,                          } from './course.js';
+import { cards, grammarUnits, levels, skills, units,                          } from './course.js';
+import { assess, authenticate, configured, mergeProgress, session, signOut, syncProgress, watchAccount } from './account.js';
+import { toWav } from './recording.js';
 import {
   advance, available, blank, completed, dueCards, evaluate, examPassed, localDate, nextUnit,
   readProgress, results, reviewCard, start,                                                      
 } from './engine.js';
 
 const key = 'hablario-progress';
+let activeKey = key;
+let syncStatus = '';
+let syncQueue = Promise.resolve();
 const main = document.querySelector             ('#main') ;
 const saveStatus = document.querySelector             ('#save-status') ;
 let persistent = true;
 function read()           {
-  try { return readProgress(localStorage.getItem(key)); }
+  try { return readProgress(localStorage.getItem(activeKey)); }
   catch { persistent = false; return blank(); }
 }
 let state = read();
 
+function scheduleSync() {
+  const account = session;
+  const storageKey = activeKey;
+  if (!account || storageKey !== key + ':' + account.user.id) return;
+  syncQueue = syncQueue.then(async () => {
+    if (storageKey !== activeKey) return;
+    try {
+      const merged = await syncProgress(account, state);
+      if (storageKey !== activeKey) return;
+      state = mergeProgress(state, merged);
+      if (persistent) localStorage.setItem(storageKey, JSON.stringify(state));
+      syncStatus = 'Прогресс синхронизирован.';
+    } catch {
+      syncStatus = 'Синхронизация недоступна. Повторите её в настройках.';
+    }
+    const status = document.querySelector('#account-sync');
+    if (status) status.textContent = syncStatus;
+    if (storageKey === activeKey && ['home', 'progress', 'course'].includes(route())) render();
+  });
+}
+
 async function update(transform                                  )                {
+  const destination = activeKey;
   const commit = () => {
+    if (activeKey !== destination) return;
     const previous = persistent ? read() : state;
     state = transform(previous);
     try {
-      if (persistent) localStorage.setItem(key, JSON.stringify(state));
+      if (persistent) localStorage.setItem(activeKey, JSON.stringify(state));
     } catch { persistent = false; }
     if (!persistent) saveStatus.textContent = 'Браузер не сохраняет прогресс. Он доступен до закрытия или перезагрузки страницы.';
   };
   if (navigator.locks) await navigator.locks.request(key, commit);
   else commit();
+  scheduleSync();
 }
 function html(value         )         {
   return String(value ?? '').replace(/[&<>"']/g, character => (
@@ -55,15 +84,46 @@ function playControl(id        , label = 'Слушать')         {
     '<span class="muted" id="' + id + '-status" role="status"></span></div>';
 }
 let playing                                                              ;
+let media                              ;
+const manifestPath = './audio-manifest.js';
+const audioManifest = import(manifestPath).then(module => new Set        (module.default)).catch(() => new Set        ());
 function stopAudio() {
+  media?.pause();
+  media = undefined;
   playing = undefined;
   if ('speechSynthesis' in window) speechSynthesis.cancel();
 }
-function bindAudio(id        , text        ) {
+function bindAudio(id        , text        , track = id) {
   let started = false;
   const status = document.getElementById(id + '-status') ;
   const pause = document.getElementById(id + '-pause')                     ;
   pause.disabled = true;
+  const play = document.getElementById(id) ;
+  const filename = track + '.mp3';
+  void audioManifest.then(recordings => {
+    if (!recordings.has(filename) || !play.isConnected) return;
+    const player = document.createElement('audio');
+    player.controls = true;
+    player.preload = 'none';
+    player.src = './audio/' + filename;
+    player.setAttribute('aria-label', 'Аудиозапись урока');
+    player.addEventListener('play', () => {
+      if (media !== player) {
+        stopAudio();
+        media = player;
+      }
+    });
+    player.addEventListener('playing', () => { started = true; });
+    player.addEventListener('error', () => {
+      player.remove();
+      play.hidden = false;
+      pause.hidden = false;
+      status.textContent = 'Файл недоступен. Используйте озвучку браузера.';
+    });
+    play.after(player);
+    play.hidden = true;
+    pause.hidden = true;
+  });
   document.getElementById(id) .onclick = () => {
     if (!('speechSynthesis' in window)) {
       status.textContent = 'Озвучка недоступна в этом браузере.';
@@ -147,16 +207,17 @@ function course() {
       '</h2><span class="status">' + html(level.status) + '</span></div>' +
       units.filter(unit => unit.level === level.id).map(courseRow).join('') +
       (level.future ? '<p class="muted">' + html(level.future) + '</p>' : '') + '</section>'
-    ).join('') + '</div>');
+    ).join('') + '</div><section class="course-section grammar-section"><h2>Грамматика</h2>' +
+    grammarUnits.map(courseRow).join('') + '</section>');
 }
 function lessonIntro(unit      ) {
   const scene = unit.scene?.map(([es, ru]) => '<div>' + spanish(es) + '<p class="muted">' + html(ru) + '</p></div>').join('');
   show('<article class="lesson"><a class="back" href="#course">← Карта курса</a>' + heading(unit.name, unit.goal) +
     '<div class="lesson-panel">' + (scene ? '<h2>Ситуация</h2><p>' + html(unit.context) + '</p><div class="dialogue">' +
       scene + '</div>' + playControl('scene-audio', 'Слушать диалог') + '<h2>Что пригодится</h2><p>' + html(unit.note) + '</p>' :
-      '<p>Чтение и аудирование проверяются автоматически. Письмо и говорение вы оцениваете сами по критериям. Если для аудирования понадобится транскрипт, результат будет отмечен как выполнение с опорой.</p>') +
+      '<p>Чтение и аудирование проверяются по ключам. Для проверки письма и устного ответа войдите в аккаунт. Если открыть транскрипт в аудировании, ответ будет отмечен как выполненный с опорой.</p>') +
     action(unit.exam ? 'К проверке →' : 'К заданиям →', 'begin', '') + '</div></article>');
-  if (unit.scene) bindAudio('scene-audio', unit.scene.map(line => line[0]).join(' '));
+  if (unit.scene) bindAudio('scene-audio', unit.scene.map(line => line[0]).join(' '), unit.id + '-scene');
   document.getElementById('begin') .onclick = async () => {
     await update(before => available(before, unit) ? start(before, unit, crypto.randomUUID()) : before);
     render(true);
@@ -171,29 +232,53 @@ function bindRecording() {
   const remove = document.querySelector                   ('#remove-audio') ;
   const audio = document.querySelector                  ('#recording') ;
   const status = document.querySelector             ('#record-status') ;
+  const file = document.querySelector                  ('#audio-file') ;
   let recorder                           ;
   let stream                         ;
   let url                    ;
   let disposed = false;
+  let recording                  ;
+  let timer                    ;
   const stopTracks = () => stream?.getTracks().forEach(track => track.stop());
   const clear = () => {
     if (url) URL.revokeObjectURL(url);
     url = undefined;
+    recording = undefined;
     audio.removeAttribute('src');
     audio.hidden = true;
     remove.hidden = true;
   };
   disposeRecording = () => {
     disposed = true;
+    window.clearTimeout(timer);
     if (recorder?.state === 'recording') recorder.stop();
     stopTracks();
     clear();
   };
-  remove.onclick = () => { clear(); status.textContent = 'Запись удалена.'; };
+  function preview(blob      ) {
+    clear();
+    recording = blob;
+    url = URL.createObjectURL(blob);
+    audio.src = url;
+    audio.hidden = false;
+    remove.hidden = false;
+  }
+  const getRecording = () => recording;
+  remove.onclick = () => { clear(); file.value = ''; status.textContent = 'Запись удалена.'; };
+  file.onchange = () => {
+    const selected = file.files?.[0];
+    if (!selected) return;
+    if (selected.size > 12_000_000) {
+      status.textContent = 'Выберите аудиофайл до 12 МБ.';
+      return;
+    }
+    preview(selected);
+    status.textContent = 'Файл готов к проверке.';
+  };
   if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
     record.disabled = true;
-    status.textContent = 'Запись недоступна. Произнесите ответ вслух и сверитесь с примером.';
-    return;
+    status.textContent = 'Запись через микрофон недоступна. Загрузите аудиофайл.';
+    return getRecording;
   }
   record.onclick = async () => {
     if (recorder?.state === 'recording') { recorder.stop(); return; }
@@ -206,30 +291,34 @@ function bindRecording() {
       const parts         = [];
       recorder.ondataavailable = event => { if (event.data.size) parts.push(event.data); };
       recorder.onstop = () => {
+        window.clearTimeout(timer);
+        file.disabled = false;
         stopTracks();
         if (disposed) return;
         if (parts.length) {
-          url = URL.createObjectURL(new Blob(parts, { type: recorder?.mimeType }));
-          audio.src = url;
-          audio.hidden = false;
-          remove.hidden = false;
+          preview(new Blob(parts, { type: recorder?.mimeType }));
         }
         record.textContent = 'Записать снова';
         status.textContent = parts.length ? 'Запись готова к прослушиванию.' : 'Звук не записался. Попробуйте снова.';
       };
       recorder.onerror = () => {
+        window.clearTimeout(timer);
+        file.disabled = false;
         stopTracks();
         record.textContent = 'Записать ответ';
-        status.textContent = 'Ошибка записи. Попробуйте снова или произнесите ответ самостоятельно.';
+        status.textContent = 'Ошибка записи. Попробуйте снова или загрузите аудиофайл.';
       };
       recorder.start();
+      file.disabled = true;
+      timer = window.setTimeout(() => { if (recorder?.state === 'recording') recorder.stop(); }, 59000);
       record.textContent = 'Остановить запись';
       status.textContent = 'Идёт запись.';
     } catch {
       stopTracks();
-      status.textContent = 'Микрофон недоступен. Произнесите ответ вслух и сверитесь с примером.';
+      status.textContent = 'Микрофон недоступен. Загрузите аудиофайл.';
     } finally { record.disabled = false; }
   };
+  return getRecording;
 }
 function exerciseFields(exercise          ) {
   switch (exercise.kind) {
@@ -248,9 +337,10 @@ function exerciseFields(exercise          ) {
       return '<div><p>Ваша фраза</p><div id="sequence" class="chips"></div><p>Доступные слова</p><div id="tokens" class="chips"></div></div>';
     case 'open':
       return exercise.skill === 'writing'
-        ? '<label for="response">Ваш текст</label><textarea id="response" name="answer" lang="es-MX"></textarea>' + symbols
-        : '<div class="stack"><p>Ответьте вслух. Запись доступна на этом шаге.</p><div class="actions">' +
+        ? '<label for="response">Ваш текст</label><textarea id="response" name="answer" lang="es-MX" maxlength="4000"></textarea>' + symbols
+        : '<div class="stack"><p>Запишите ответ длительностью до одной минуты.</p><div class="actions">' +
           action('Записать ответ', 'record') + '<button class="btn alt" type="button" id="remove-audio" hidden>Удалить запись</button></div>' +
+          '<label for="audio-file">Или загрузите аудиофайл</label><input id="audio-file" type="file" accept="audio/*,.m4a,.webm,.mp3,.wav">' +
           '<audio id="recording" controls hidden></audio><p role="status" id="record-status" class="muted"></p></div>';
   }
 }
@@ -267,21 +357,22 @@ function exerciseView(unit      ) {
     '<form id="exercise" class="lesson-panel"><p class="eyebrow">' + skills[exercise.skill] + '</p><h2>' +
     html(exercise.prompt) + '</h2>' + (passage ? '<blockquote class="dialogue" lang="es-MX">' + html(passage) + '</blockquote>' : '') +
     (audio ? playControl('exercise-audio') + '<details id="transcript"><summary>Открыть транскрипт</summary><p lang="es-MX">' + html(audio) + '</p></details>' : '') +
-    exerciseFields(exercise) + '<div id="feedback" role="status" hidden></div><div id="self-assessment" hidden></div>' +
+    exerciseFields(exercise) +
+    (exercise.kind === 'open' ? '<p class="muted">При нажатии «Проверить ответ» текст или запись отправляется в Google Gemini. На бесплатном тарифе Google может использовать данные для улучшения продуктов.</p>' +
+      (!session ? '<a href="#settings">Войти для проверки</a>' : '') : '') +
+    '<div id="feedback" role="status" hidden></div>' +
     '<div class="actions"><button class="btn" id="check">' +
-    (exercise.kind === 'open' ? 'Свериться с примером' : unit.exam ? 'Сохранить ответ' : 'Проверить ответ') +
-    '</button>' + (audio ? action('Пропустить аудирование', 'skip-audio') : '') + '</div></form></article>');
+    (unit.exam && exercise.kind !== 'open' ? 'Сохранить ответ' : 'Проверить ответ') +
+    '</button>' + (audio || exercise.kind === 'open' ? action('Пропустить задание', 'skip-audio') : '') + '</div></form></article>');
   const form = document.querySelector                 ('#exercise') ;
   const check = document.querySelector                   ('#check') ;
   const feedback = document.querySelector             ('#feedback') ;
   const input = form.querySelector                                        ('#response');
   let assisted = false;
-  let self = false;
   let accepted                                         ;
-  let original                    ;
   let submitting = false;
   const selected           = [];
-  const audioStarted = audio ? bindAudio('exercise-audio', audio) : undefined;
+  const audioStarted = audio ? bindAudio('exercise-audio', audio, exercise.id) : undefined;
   if (audio) {
     const transcript = document.querySelector                    ('#transcript') ;
     transcript.addEventListener('toggle', () => { if (transcript.open) assisted = true; });
@@ -317,7 +408,7 @@ function exerciseView(unit      ) {
     };
     updateTokens();
   }
-  if (exercise.kind === 'open' && exercise.skill === 'speaking') bindRecording();
+  const getRecording = exercise.kind === 'open' && exercise.skill === 'speaking' ? bindRecording() : undefined;
 
   const commit = async (mark                             ) => {
     if (submitting) return;
@@ -329,34 +420,54 @@ function exerciseView(unit      ) {
     else go('result/' + unit.id);
   };
   document.getElementById('skip-audio')?.addEventListener('click', () => commit(evaluate(exercise, '', 'skipped')));
-  form.onsubmit = event => {
+  form.onsubmit = async event => {
     event.preventDefault();
     if (submitting) return;
     if (accepted) { void commit(accepted); return; }
     const data = new FormData(form);
     if (exercise.kind === 'open') {
-      if (!self) {
-        original = input?.value;
-        if (input && !original?.trim()) {
-          feedback.hidden = false;
-          feedback.textContent = 'Сначала напишите ответ.';
-          input.focus();
-          return;
-        }
-        self = true;
-        if (input) { input.readOnly = true; form.querySelectorAll                   ('[data-symbol]').forEach(button => { button.disabled = true; }); }
-        feedback.hidden = true;
-        const assessment = document.querySelector             ('#self-assessment') ;
-        assessment.hidden = false;
-        assessment.innerHTML = '<p class="dialogue" lang="es-MX">' + html(exercise.example) + '</p><fieldset class="choices"><legend>Отметьте выполненные критерии</legend>' +
-          exercise.criteria.map((criterion, n) => '<label class="criterion"><input type="checkbox" name="criterion" value="' +
-            n + '">' + html(criterion) + '</label>').join('') + '</fieldset>';
-        check.textContent = 'Сохранить самооценку →';
-        assessment.querySelector('input')?.focus();
+      form.querySelector('#continue-anyway')?.remove();
+      const answer = input?.value.trim() ?? '';
+      const audio = getRecording?.();
+      feedback.hidden = false;
+      feedback.className = 'feedback';
+      if (!session || (!answer && !audio)) {
+        feedback.textContent = !session ? 'Войдите в аккаунт для отправки ответа.' : 'Сначала добавьте ответ.';
         return;
       }
-      const mark = evaluate(exercise, data.getAll('criterion').map(String));
-      void commit({ ...mark, response: original });
+      submitting = true;
+      check.disabled = true;
+      const controls = Array.from(form.querySelectorAll                                                            ('textarea, input, [data-symbol], #record, #remove-audio, #skip-audio'));
+      const enabled = controls.filter(control => !control.disabled);
+      enabled.forEach(control => { control.disabled = true; });
+      feedback.textContent = 'Проверяем ответ…';
+      try {
+        const result = await assess(exercise.id, answer, audio ? await toWav(audio) : undefined);
+        if (!form.isConnected) return;
+        const correct = result.verdict === 'correct';
+        feedback.className += correct ? '' : ' wrong';
+        feedback.innerHTML = '<strong>' + (correct ? 'Верно' : result.verdict === 'revise' ? 'Нужно исправить' : 'Не удалось уверенно оценить') +
+          '</strong><p>' + html(result.explanation) + '</p>' +
+          (result.transcript ? '<p>Распознано: ' + spanish(result.transcript) + '</p>' : '') +
+          (result.correction ? '<p>Вариант ответа: ' + spanish(result.correction) + '</p>' : '');
+        const mark = { exerciseId: exercise.id, mode: 'auto'         , answer: answer || result.transcript, earned: Number(correct), possible: 1 };
+        if (correct) {
+          accepted = mark;
+          check.textContent = 'Далее →';
+          return;
+        }
+        if (result.verdict === 'revise') {
+          document.getElementById('continue-anyway')?.remove();
+          check.insertAdjacentHTML('afterend', action('Сохранить результат', 'continue-anyway'));
+          document.getElementById('continue-anyway') .onclick = () => { void commit(mark); };
+        }
+      } catch (error) {
+        feedback.textContent = error instanceof Error ? error.message : 'Проверка временно недоступна.';
+      } finally {
+        submitting = false;
+        check.disabled = false;
+        if (!accepted) enabled.forEach(control => { control.disabled = false; });
+      }
       return;
     }
     let answer         = String(data.get('answer') ?? '');
@@ -512,9 +623,43 @@ function progressPage() {
       revisit.map(unit => btn(unit.name, 'result/' + unit.id, 'alt')).join('') + '</div></section>' : '') + '</div>');
 }
 function settingsPage() {
-  show(heading('Настройки') + '<section class="panel stack"><h2>Данные в этом браузере</h2>' +
-    '<p>Прогресс и письменные ответы сохраняются в этом профиле браузера. При очистке данных сайта они удалятся. Записи микрофона доступны только на открытом задании.</p>' +
-    '<h2>Озвучка</h2><p>Платформа использует голоса браузера. При наличии es-MX он выбирается первым. Язык и имя голоса отображаются при воспроизведении. Если испанского голоса нет, откройте транскрипт.</p></section>');
+  const content = session
+    ? '<p>' + html(session.user.email) + '</p><div class="actions">' + action('Синхронизировать', 'sync-progress') +
+      action('Перенести гостевой прогресс', 'import-guest') + action('Выйти', 'logout') + '</div>'
+    : configured
+      ? '<form id="account-form" class="stack"><label>Email<input type="email" name="email" autocomplete="email" required></label>' +
+        '<label>Пароль<input type="password" name="password" autocomplete="current-password" minlength="6" required></label>' +
+        '<div class="actions"><button class="btn" value="signin">Войти</button><button class="btn alt" value="signup">Создать аккаунт</button></div></form>'
+      : '<p>Облачный аккаунт ещё не подключён. Гостевой прогресс хранится в браузере.</p>';
+  show(heading('Аккаунт и настройки') + '<section class="panel stack"><h2>Ваш прогресс</h2>' +
+    '<p>Войдите на другом устройстве с тем же email, чтобы продолжить обучение.</p>' +
+    content + '<p id="account-sync" role="status">' + html(syncStatus) + '</p></section>');
+  const form = document.querySelector                 ('#account-form');
+  const status = document.querySelector             ('#account-sync') ;
+  if (form) form.onsubmit = async event => {
+    event.preventDefault();
+    const data = new FormData(form);
+    const intent = (event.submitter                            )?.value ?? 'signin';
+    const buttons = Array.from(form.querySelectorAll('button'));
+    buttons.forEach(button => { button.disabled = true; });
+    status.textContent = 'Подключаемся…';
+    try {
+      status.textContent = await authenticate(intent, String(data.get('email')), String(data.get('password')));
+    } catch (error) {
+      status.textContent = error instanceof Error ? error.message : 'Не удалось войти.';
+    } finally { buttons.forEach(button => { button.disabled = false; }); }
+  };
+  document.getElementById('sync-progress')?.addEventListener('click', scheduleSync);
+  document.getElementById('logout')?.addEventListener('click', () => {
+    void signOut().catch(() => { status.textContent = 'Не удалось выйти. Попробуйте снова.'; });
+  });
+  document.getElementById('import-guest')?.addEventListener('click', async () => {
+    try {
+      const guest = readProgress(localStorage.getItem(key));
+      await update(local => mergeProgress(local, guest));
+      status.textContent = 'Гостевой прогресс добавлен к аккаунту.';
+    } catch { status.textContent = 'Гостевой прогресс недоступен.'; }
+  });
 }
 let previousRoute = 'home';
 function render(focus = false) {
@@ -529,7 +674,7 @@ function render(focus = false) {
     if (link.getAttribute('href') === '#' + nav && !link.classList.contains('brand')) link.setAttribute('aria-current','page');
     else link.removeAttribute('aria-current');
   });
-  const unit = id ? units.find(item => item.id === id) : undefined;
+  const unit = id ? [...units, ...grammarUnits].find(item => item.id === id) : undefined;
   switch (page) {
     case 'lesson':
       if (!unit || !available(state, unit)) { go('course'); return; }
@@ -555,8 +700,18 @@ document.querySelector                   ('.skip') .addEventListener('click', ev
 });
 window.addEventListener('hashchange', () => render(true));
 window.addEventListener('storage', event => {
-  if (event.key !== key && event.key !== null) return;
+  if (event.key !== activeKey && event.key !== null) return;
   state = read();
   if (!route().startsWith('lesson/') && route() !== 'review') render();
 });
 render();
+void watchAccount(account => {
+  const nextKey = account ? key + ':' + account.user.id : key;
+  if (nextKey === activeKey) return;
+  activeKey = nextKey;
+  syncStatus = '';
+  state = read();
+  render();
+  if (account) scheduleSync();
+});
+window.addEventListener('online', scheduleSync);

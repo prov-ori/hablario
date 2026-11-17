@@ -1,0 +1,4 @@
+project_id = "hablario"
+
+[functions.assess]
+verify_jwt = false

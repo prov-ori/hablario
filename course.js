@@ -296,3 +296,58 @@ export const units = levels.flatMap(level => [
   ...lessons.filter(item => item.level === level.id), ...exams.filter(item => item.level === level.id)
 ]);
 export const cards = lessons.flatMap(item => item.cards);
+
+export const grammarUnits         = [
+  {
+    id: 'grammar-ser-estar', level: 'A1', name: 'Ser, estar и hay',
+    goal: 'Сказать, что находится рядом, и описать место.',
+    note: 'Ser описывает, что это за место. Estar указывает, где находится конкретный объект. Hay сообщает, что объект существует.',
+    context: 'Вы спрашиваете, где можно поесть рядом с музеем.',
+    scene: [['¿Hay una cafetería cerca?', 'Рядом есть кафе?'], ['Sí, está frente al museo. Es pequeña.', 'Да, оно напротив музея. Оно маленькое.']],
+    cards: [],
+    exercises: [
+      { id:'grammar-location', kind:'input', skill:'writing', prompt:'Вставьте глагол. La cafetería ___ frente al museo.', answers:['está'], feedback:'Для местоположения конкретного кафе нужна форма está. Поставьте ударение над á.' },
+      { id:'grammar-existence', kind:'choice', skill:'reading', prompt:'Как спросить, есть ли здесь аптека?', options:['¿Hay una farmacia aquí?', '¿Es una farmacia aquí?', '¿Está una farmacia aquí?'], answer:'¿Hay una farmacia aquí?', feedback:'Hay вводит объект, о существовании которого мы спрашиваем.' },
+      { id:'grammar-description', kind:'order', skill:'writing', prompt:'Соберите фразу «Кафе маленькое».', tokens:['pequeña.', 'La', 'es', 'cafetería'], answer:'La cafetería es pequeña.', feedback:'Для описания кафе используйте es. Прилагательное pequeña согласуется со словом cafetería.' },
+    ],
+  },
+  {
+    id: 'grammar-past', level: 'A2', name: 'Pretérito и imperfecto',
+    goal: 'Отделить завершённое событие от описания обстоятельств.',
+    note: 'Pretérito indefinido передаёт завершённое событие. Imperfecto описывает обстоятельства, привычку или действие в процессе.',
+    context: 'Вы рассказываете, как добрались домой во время дождя.',
+    scene: [['Llovía mucho, así que tomé un taxi.', 'Шёл сильный дождь, поэтому я взял такси.']],
+    cards: [],
+    exercises: [
+      { id:'grammar-past-match', kind:'match', skill:'reading', prompt:'Определите роль каждой части рассказа.', pairs:[['Llovía mucho', 'Обстоятельство'], ['Tomé un taxi', 'Завершённое событие']], feedback:'Llovía описывает погоду. Tomé сообщает, что сделал рассказчик.' },
+      { id:'grammar-past-form', kind:'input', skill:'writing', prompt:'Вставьте форму llegar. Ayer yo ___ a Guadalajara.', answers:['llegué'], feedback:'Речь о завершённом прибытии. Yo llegué пишется с gu и ударением на é.' },
+      { id:'grammar-habit', kind:'choice', skill:'reading', prompt:'Выберите форму для привычки. De niño ___ al mercado todos los domingos.', options:['iba', 'fui', 'voy'], answer:'iba', feedback:'Todos los domingos указывает на повторявшееся действие в прошлом. Нужна форма iba.' },
+    ],
+  },
+  {
+    id: 'grammar-subjunctive', level: 'B1', name: 'Subjuntivo в просьбах',
+    goal: 'Попросить собеседника что-то сделать и описать желаемый результат.',
+    note: 'После quiero que или te pido que употребляется subjuntivo, если действие должен выполнить другой человек.',
+    context: 'Вы организуете встречу и просите друга подтвердить время.',
+    scene: [['Te pido que confirmes la hora.', 'Прошу тебя подтвердить время.']],
+    cards: [],
+    exercises: [
+      { id:'grammar-request', kind:'input', skill:'writing', prompt:'Вставьте форму mandar. Quiero que tú me ___ la dirección.', answers:['mandes'], feedback:'Для tú глагол mandar принимает форму mandes в presente de subjuntivo.' },
+      { id:'grammar-subjects', kind:'choice', skill:'reading', prompt:'Как сказать «Я хочу сам проверить адрес»?', options:['Quiero revisar la dirección.', 'Quiero que revises la dirección.', 'Quiero que revise la dirección.'], answer:'Quiero revisar la dirección.', feedback:'Оба действия выполняет говорящий, поэтому после quiero подходит инфинитив revisar.' },
+      { id:'grammar-request-order', kind:'order', skill:'writing', prompt:'Соберите фразу «Пожалуйста, подтверди время».', tokens:['que', 'Te', 'la', 'pido', 'hora.', 'confirmes'], answer:'Te pido que confirmes la hora.', feedback:'После te pido que ставится confirmes, затем дополнение la hora.' },
+    ],
+  },
+  {
+    id: 'grammar-hypothesis', level: 'B2', name: 'Гипотезы с si',
+    goal: 'Описать воображаемое условие и его последствия.',
+    note: 'Для гипотезы о настоящем или будущем после si используется imperfecto de subjuntivo. В главной части ставится condicional.',
+    context: 'Вы обсуждаете, как увеличить число посетителей библиотеки.',
+    scene: [['Si ampliáramos el horario, vendría más gente.', 'Если бы мы продлили часы работы, пришло бы больше людей.']],
+    cards: [],
+    exercises: [
+      { id:'grammar-condition', kind:'choice', skill:'reading', prompt:'Выберите гипотезу. Si ___ presupuesto, abriríamos los domingos.', options:['tuviéramos', 'tendríamos', 'tenemos'], answer:'tuviéramos', feedback:'После si в этой гипотезе нужна форма tuviéramos. Condicional находится в слове abriríamos.' },
+      { id:'grammar-consequence', kind:'input', skill:'writing', prompt:'Вставьте форму poder. Si hubiera más tiempo, ___ revisar el informe. Подлежащее nosotros.', answers:['podríamos'], feedback:'В главной части используется condicional. Для nosotros нужна форма podríamos.' },
+      { id:'grammar-hypothesis-match', kind:'match', skill:'reading', prompt:'Определите функцию каждого фрагмента.', pairs:[['Si tuviéramos datos', 'Условие'], ['Tomaríamos una decisión', 'Последствие']], feedback:'Si вводит условие. Tomaríamos описывает возможное последствие.' },
+    ],
+  },
+];
