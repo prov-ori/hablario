@@ -12,6 +12,10 @@ function encodeBase64(bytes: Uint8Array): string {
 const exercises = new Map([...units, ...practiceUnits].flatMap(unit => unit.exercises.map(exercise => [exercise.id, exercise] as const)));
 const allowed = (Deno.env.get('HABLARIO_ALLOWED_ORIGINS') || '').split(',').map(origin => origin.trim());
 
+function googleErrorCode(value: unknown): string {
+  return typeof value === 'string' && /^[A-Z][A-Z0-9_]{0,63}$/.test(value) ? value : '';
+}
+
 Deno.serve(async request => {
   const origin = request.headers.get('origin') || '';
   const headers = {
@@ -26,7 +30,7 @@ Deno.serve(async request => {
   if (request.method !== 'POST') return reply({ error: 'Нужен запрос POST.' }, 405);
   const authorization = request.headers.get('authorization');
   if (!authorization?.startsWith('Bearer ')) return reply({ error: 'Войдите в аккаунт.' }, 401);
-  const key = Deno.env.get('GEMINI_API_KEY');
+  const key = Deno.env.get('GEMINI_API_KEY')?.trim();
   const project = Deno.env.get('SUPABASE_URL');
   const apikey = Deno.env.get('SUPABASE_ANON_KEY');
   if (!key || !project || !apikey) return reply({ error: 'Серверная проверка ещё не настроена.' }, 503);
@@ -61,7 +65,7 @@ Deno.serve(async request => {
     if (!quota.ok) return reply({ error: quota.status === 401 ? 'Войдите в аккаунт заново.' : 'Проверка временно недоступна.' }, quota.status === 401 ? 401 : 503);
     if (!await quota.json()) return reply({ error: 'Дневной лимит проверок исчерпан. Попробуйте завтра.' }, 429);
 
-    const model = Deno.env.get('GEMINI_MODEL') || 'gemini-3.1-flash-lite';
+    const model = Deno.env.get('GEMINI_MODEL')?.trim() || 'gemini-3.1-flash-lite';
     const fields = ['verdict', 'explanation', 'correction', 'transcript'];
     const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent', {
       method: 'POST', headers: { 'x-goog-api-key': key, 'content-type': 'application/json' },
@@ -79,7 +83,19 @@ Deno.serve(async request => {
         } },
       }),
     });
-    if (!response.ok) return reply({ error: response.status === 429 ? 'Лимит Gemini исчерпан. Попробуйте позже.' : 'Gemini не обработал ответ. Проверьте модель и ключ на сервере.' }, 503);
+    if (!response.ok) {
+      const body = await response.json().catch(() => null);
+      const status = googleErrorCode(body?.error?.status);
+      const reason = Array.isArray(body?.error?.details)
+        ? body.error.details.map((detail: { reason?: unknown }) => googleErrorCode(detail?.reason)).find(Boolean)
+        : undefined;
+      const code = [response.status, status, reason].filter(Boolean).join(' ');
+      console.warn('Gemini API assessment failed:', code);
+      const message = response.status === 429
+        ? 'Лимит Gemini исчерпан. Попробуйте позже.'
+        : 'Gemini не обработал ответ. Код Google: ' + code + '.';
+      return reply({ error: message }, response.status === 429 ? 429 : 503);
+    }
     const result = await response.json();
     const assessment = JSON.parse(result.candidates?.[0]?.content?.parts?.filter((part: { thought?: boolean }) => !part.thought).at(-1)?.text ?? '{}');
     if (!['correct', 'revise', 'uncertain'].includes(assessment.verdict) || !fields.every(field => typeof assessment[field] === 'string')) throw new Error('Invalid result');
