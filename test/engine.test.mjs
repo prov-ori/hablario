@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cards, courseVersion, levels, units } from '../src/course.ts';
+import { cards, courseVersion, grammarUnits, levels, practiceUnits, units } from '../src/course.ts';
 import { advance, available, blank, completed, dueCards, evaluate, examPassed, localDate, nextUnit, normalize, readProgress, results, reviewCard, start } from '../src/engine.ts';
 
 function sample(exercise) {
@@ -13,21 +13,23 @@ function sample(exercise) {
 }
 
 test('course content uses unique IDs and all four skills in every unit', () => {
-  const ids = units.flatMap(unit => [unit.id, ...unit.exercises.map(item => item.id), ...unit.cards.map(card => card.id)]);
+  const all = [...units, ...practiceUnits, ...grammarUnits];
+  const ids = all.flatMap(unit => [unit.id, ...unit.exercises.map(item => item.id), ...unit.cards.map(card => card.id)]);
   assert.equal(new Set(ids).size, ids.length);
   assert.equal(courseVersion, 1);
-  assert.equal(cards.length, units.reduce((count, unit) => count + unit.cards.length, 0));
+  assert.equal(cards.length, all.reduce((count, unit) => count + unit.cards.length, 0));
   for (const level of levels) {
     const members = units.filter(unit => unit.level === level.id);
     assert.ok(members.some(unit => !unit.exam));
     assert.equal(members.filter(unit => unit.exam).length, Number(level.id !== 'Pre-A1'));
   }
-  for (const unit of units) {
-    assert.equal(new Set(unit.exercises.map(item => item.skill)).size, 4);
+  for (const unit of all) {
+    if (!grammarUnits.includes(unit)) assert.equal(new Set(unit.exercises.map(item => item.skill)).size, 4);
     for (const card of unit.cards) assert.equal(card.unitId, unit.id);
     for (const exercise of unit.exercises) {
       assert.equal(evaluate(exercise, sample(exercise)).earned, exercise.kind === 'open' ? exercise.criteria.length : 1);
       if (exercise.kind === 'choice') assert.ok(exercise.options.includes(exercise.answer));
+      if (exercise.kind === 'order') assert.deepEqual([...exercise.tokens].sort(), exercise.answer.split(' ').sort());
     }
   }
 });
@@ -108,11 +110,26 @@ test('the full published route unlocks through recorded assessments', () => {
     assert.equal(completed(state, unit), true);
   }
   assert.equal(nextUnit(state), undefined);
-  assert.equal(dueCards(state).length, cards.length);
+  assert.equal(dueCards(state).length, units.reduce((count, unit) => count + unit.cards.length, 0));
 });
 
 test('missing, malformed and unknown progress versions fall back safely', () => {
   for (const snapshot of [null, '{', '{}', '{"version":2}', '{"version":1}']) {
     assert.deepEqual(readProgress(snapshot), blank());
   }
+});
+
+test('extra practice resumes, creates cards and leaves the core route accessible', () => {
+  const unit = practiceUnits.find(item => item.level === 'B2');
+  let state = blank();
+  assert.equal(available(state, unit), true);
+  state = start(state, unit, 'practice');
+  state = readProgress(JSON.stringify(state));
+  assert.equal(nextUnit(state), unit);
+  for (const exercise of unit.exercises) {
+    state = advance(state, unit, 'practice', evaluate(exercise, sample(exercise)));
+  }
+  assert.equal(completed(state, unit), true);
+  assert.deepEqual(dueCards(state).map(card => card.id), unit.cards.map(card => card.id));
+  assert.equal(nextUnit(state), units[0]);
 });

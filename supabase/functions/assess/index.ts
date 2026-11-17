@@ -1,5 +1,5 @@
 /// <reference lib="deno.ns" />
-import { units } from '../../../src/course.ts';
+import { practiceUnits, units } from '../../../src/course.ts';
 
 function encodeBase64(bytes: Uint8Array): string {
   const chunks: string[] = [];
@@ -9,7 +9,7 @@ function encodeBase64(bytes: Uint8Array): string {
   return btoa(chunks.join(''));
 }
 
-const exercises = new Map(units.flatMap(unit => unit.exercises.map(exercise => [exercise.id, exercise] as const)));
+const exercises = new Map([...units, ...practiceUnits].flatMap(unit => unit.exercises.map(exercise => [exercise.id, exercise] as const)));
 const allowed = (Deno.env.get('HABLARIO_ALLOWED_ORIGINS') || '').split(',').map(origin => origin.trim());
 
 Deno.serve(async request => {

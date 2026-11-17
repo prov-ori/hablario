@@ -1,4 +1,4 @@
-import { units, grammarUnits, cards,                                                 } from './course.js?v=909bb40f96ab';
+import { units, practiceUnits, grammarUnits, cards,                                                 } from './course.js?v=1cddd9d95782';
                                        
                     
                                                                                                         
@@ -105,11 +105,11 @@ export function completed(state          , unit      )          {
   return attempts.length > 0;
 }
 export function available(state          , unit      )          {
-  if (grammarUnits.includes(unit)) return true;
+  if (grammarUnits.includes(unit) || practiceUnits.includes(unit)) return true;
   const index = units.indexOf(unit);
   return index === 0 || (index > 0 && units.slice(0, index).every(previous => completed(state, previous)));
 }
 export function nextUnit(state          )                   {
-  return units.find(unit => unit.id === state.current && state.drafts[unit.id] && available(state, unit))
+  return [...units, ...practiceUnits, ...grammarUnits].find(unit => unit.id === state.current && state.drafts[unit.id] && available(state, unit))
     ?? units.find(unit => !completed(state, unit));
 }

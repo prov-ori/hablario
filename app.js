@@ -1,10 +1,10 @@
-import { cards, grammarUnits, levels, skills, units,                          } from './course.js?v=909bb40f96ab';
-import { assess, authenticate, configured, mergeProgress, session, signOut, syncProgress, watchAccount } from './account.js?v=909bb40f96ab';
-import { toWav } from './recording.js?v=909bb40f96ab';
+import { cards, grammarUnits, practiceUnits, levels, skills, units,                          } from './course.js?v=1cddd9d95782';
+import { assess, authenticate, configured, mergeProgress, session, signOut, syncProgress, watchAccount } from './account.js?v=1cddd9d95782';
+import { toWav } from './recording.js?v=1cddd9d95782';
 import {
   advance, available, blank, completed, dueCards, evaluate, examPassed, localDate, nextUnit,
   readProgress, results, reviewCard, start,                                                      
-} from './engine.js?v=909bb40f96ab';
+} from './engine.js?v=1cddd9d95782';
 
 const key = 'hablario-progress';
 let activeKey = key;
@@ -85,7 +85,7 @@ function playControl(id        , label = 'Слушать')         {
 }
 let playing                                                              ;
 let media                              ;
-const manifestPath = './audio-manifest.js?v=909bb40f96ab';
+const manifestPath = './audio-manifest.js?v=1cddd9d95782';
 const audioManifest = import(manifestPath).then(module => new Set        (module.default)).catch(() => new Set        ());
 function stopAudio() {
   media?.pause();
@@ -206,6 +206,8 @@ function course() {
       '<section class="course-section"><div class="course-head"><span class="level-tag">' + level.id + '</span><h2>' + html(level.name) +
       '</h2><span class="status">' + html(level.status) + '</span></div>' +
       units.filter(unit => unit.level === level.id).map(courseRow).join('') +
+      '<div class="extra-practice"><h3>Дополнительная практика</h3>' +
+      practiceUnits.filter(unit => unit.level === level.id).map(courseRow).join('') + '</div>' +
       (level.future ? '<p class="muted">' + html(level.future) + '</p>' : '') + '</section>'
     ).join('') + '</div><section class="course-section grammar-section"><h2>Грамматика</h2>' +
     grammarUnits.map(courseRow).join('') + '</section>');
@@ -520,7 +522,9 @@ function resultView(unit      ) {
   const resultIndex = Math.min(attempts.length - 1, Math.max(0, Number(route().split('/')[2] || attempts.length) - 1));
   const attempt = attempts[resultIndex];
   if (!attempt) { go('course'); return; }
-  const next = units[units.indexOf(unit) + 1];
+  const routeUnits = practiceUnits.includes(unit) ? practiceUnits.filter(item => item.level === unit.level) : units;
+  const position = routeUnits.indexOf(unit);
+  const next = position < 0 ? undefined : routeUnits[position + 1];
   const passed = unit.exam && examPassed(unit, attempt);
   const description = unit.exam
     ? passed ? 'В этой попытке выполнены все критерии.' : 'Откройте разбор, чтобы увидеть ошибки, пропуски и задания с транскриптом.'
@@ -598,7 +602,7 @@ function dictionary() {
     list.innerHTML = matches.map(card => '<div class="entry"><h2 lang="es-MX">' + html(card.es) + '</h2><p>' + html(card.ru) +
       '</p><p lang="es-MX">' + html(card.example) + '</p><p class="muted">' + html(card.register ?? 'Нейтральное употребление') + '</p>' +
       playControl(card.id, 'Слушать пример') +
-      '<div>' + btn('Урок: ' + (units.find(unit => unit.id === card.unitId)?.name ?? ''), 'result/' + card.unitId, 'alt') + '</div></div>').join('')
+      '<div>' + btn('Урок: ' + ([...units, ...practiceUnits].find(unit => unit.id === card.unitId)?.name ?? ''), 'result/' + card.unitId, 'alt') + '</div></div>').join('')
       || '<p role="status">Совпадений нет. Попробуйте другой запрос.</p>';
     for (const card of matches) bindAudio(card.id, card.example);
   };
@@ -606,11 +610,10 @@ function dictionary() {
   renderEntries();
 }
 function progressPage() {
-  const lessons = units.filter(unit => !unit.exam);
+  const lessons = [...units.filter(unit => !unit.exam), ...practiceUnits, ...grammarUnits];
   const checked = units.filter(unit => unit.exam && state.attempts[unit.id]?.length);
   const total = lessons.filter(unit => completed(state, unit)).length;
-  const revisit = units.filter(unit => {
-    if (unit.exam) return false;
+  const revisit = lessons.filter(unit => {
     const marks = state.attempts[unit.id]?.at(-1)?.marks;
     return marks?.some(mark => mark.mode === 'skipped' || mark.mode === 'assisted' || mark.earned < mark.possible);
   });
@@ -674,7 +677,7 @@ function render(focus = false) {
     if (link.getAttribute('href') === '#' + nav && !link.classList.contains('brand')) link.setAttribute('aria-current','page');
     else link.removeAttribute('aria-current');
   });
-  const unit = id ? [...units, ...grammarUnits].find(item => item.id === id) : undefined;
+  const unit = id ? [...units, ...practiceUnits, ...grammarUnits].find(item => item.id === id) : undefined;
   switch (page) {
     case 'lesson':
       if (!unit || !available(state, unit)) { go('course'); return; }

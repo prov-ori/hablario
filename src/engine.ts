@@ -1,4 +1,4 @@
-import { units, grammarUnits, cards, type Card, type Exercise, type Skill, type Unit } from './course.ts';
+import { units, practiceUnits, grammarUnits, cards, type Card, type Exercise, type Skill, type Unit } from './course.ts';
 export type Answer = string | string[];
 export type Mark = {
   exerciseId: string; answer: Answer; response?: string; mode: 'auto' | 'self' | 'assisted' | 'skipped';
@@ -105,11 +105,11 @@ export function completed(state: Progress, unit: Unit): boolean {
   return attempts.length > 0;
 }
 export function available(state: Progress, unit: Unit): boolean {
-  if (grammarUnits.includes(unit)) return true;
+  if (grammarUnits.includes(unit) || practiceUnits.includes(unit)) return true;
   const index = units.indexOf(unit);
   return index === 0 || (index > 0 && units.slice(0, index).every(previous => completed(state, previous)));
 }
 export function nextUnit(state: Progress): Unit | undefined {
-  return units.find(unit => unit.id === state.current && state.drafts[unit.id] && available(state, unit))
+  return [...units, ...practiceUnits, ...grammarUnits].find(unit => unit.id === state.current && state.drafts[unit.id] && available(state, unit))
     ?? units.find(unit => !completed(state, unit));
 }
