@@ -1,10 +1,10 @@
-import { cards, grammarUnits, levels, skills, units,                          } from './course.js';
-import { assess, authenticate, configured, mergeProgress, session, signOut, syncProgress, watchAccount } from './account.js';
-import { toWav } from './recording.js';
+import { cards, grammarUnits, levels, skills, units,                          } from './course.js?v=909bb40f96ab';
+import { assess, authenticate, configured, mergeProgress, session, signOut, syncProgress, watchAccount } from './account.js?v=909bb40f96ab';
+import { toWav } from './recording.js?v=909bb40f96ab';
 import {
   advance, available, blank, completed, dueCards, evaluate, examPassed, localDate, nextUnit,
   readProgress, results, reviewCard, start,                                                      
-} from './engine.js';
+} from './engine.js?v=909bb40f96ab';
 
 const key = 'hablario-progress';
 let activeKey = key;
@@ -85,7 +85,7 @@ function playControl(id        , label = 'Слушать')         {
 }
 let playing                                                              ;
 let media                              ;
-const manifestPath = './audio-manifest.js';
+const manifestPath = './audio-manifest.js?v=909bb40f96ab';
 const audioManifest = import(manifestPath).then(module => new Set        (module.default)).catch(() => new Set        ());
 function stopAudio() {
   media?.pause();
